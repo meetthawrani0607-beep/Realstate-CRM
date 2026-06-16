@@ -1,0 +1,36 @@
+{
+  "name": "propcrm",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "postinstall": "prisma generate",
+    "db:push": "prisma db push",
+    "db:seed": "node prisma/seed.mjs",
+    "db:reset": "prisma db push --force-reset && node prisma/seed.mjs",
+    "db:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.14.0",
+    "bcryptjs": "^2.4.3",
+    "date-fns": "^3.6.0",
+    "framer-motion": "^12.40.0",
+    "leaflet": "^1.9.4",
+    "leaflet-defaulticon-compatibility": "^0.1.2",
+    "lucide-react": "^1.17.0",
+    "next": "^14.2.0",
+    "next-auth": "^4.24.7",
+    "nodemailer": "^7.0.13",
+    "react": "^18.2.0",
+    "react-big-calendar": "^1.20.0",
+    "react-dom": "^18.2.0",
+    "react-leaflet": "^4.2.1",
+    "recharts": "^3.8.1"
+  },
+  "devDependencies": {
+    "@netlify/plugin-nextjs": "^5.15.11",
+    "prisma": "^5.14.0"
+  }
+}

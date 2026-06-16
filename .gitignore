@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+
+# environment
+.env
+.env.local
+.env.production.local
+
+# database files (local only)
+*.db
+*.db-journal
+prisma/dev.db
+prisma/dev.db-journal
+
+# misc
+.DS_Store
+*.tsbuildinfo
+
+# netlify
+.netlify/
+
+# scratch / test files
+scratch/

@@ -1,0 +1,280 @@
+// PropCRM — Database Schema
+// Provider: PostgreSQL (Neon serverless)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Organization (multi-tenant) ─────────────────────────────────
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  accountType String   @default("agency") // "broker" | "agency"
+  phone       String?
+  email       String?
+  logo        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users         User[]
+  leads         Lead[]
+  properties    Property[]
+  visits        SiteVisit[]
+  templates     MessageTemplate[]
+  portalSources PortalSource[]
+  portalLogs    PortalLog[]
+  automations   Automation[]
+}
+
+// ─── User / Agent ────────────────────────────────────────────────
+model User {
+  id             String   @id @default(cuid())
+  name           String
+  email          String   @unique
+  hashedPassword String
+  role           String   @default("agent") // super_admin | agency_admin | manager | agent
+  avatar         String?
+  phone          String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id])
+
+  assignedLeads Lead[]
+  activities    Activity[]
+  visits        SiteVisit[]
+  messages      Message[]
+}
+
+// ─── Lead ────────────────────────────────────────────────────────
+model Lead {
+  id              String   @id @default(cuid())
+  name            String
+  phone           String
+  email           String?
+  budget          Float?
+  budgetMax       Float?
+  propertyType    String?  // apartment | villa | plot | commercial | other
+  source          String?  // website | 99acres | magicbricks | referral | walkin | whatsapp | api | facebook
+  sourcePortalId  String?  // FK to PortalSource if imported via portal
+  status          String   @default("new") // new | contacted | qualified | visit_scheduled | negotiation | closed_won | closed_lost
+  score           Int?     // Computed lead score 0-100
+  aiScore         String?  // hot | warm | cold
+  aiNotes         String?
+  notes           String?
+  tags            String?  // JSON array of tag strings
+  city            String?
+  locality        String?
+  rawPayload      String?  // JSON of original portal payload for debugging
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id])
+
+  assignedToId String?
+  assignedTo   User?   @relation(fields: [assignedToId], references: [id])
+
+  sourcePortal   PortalSource? @relation(fields: [sourcePortalId], references: [id])
+
+  activities     Activity[]
+  messages       Message[]
+  visits         SiteVisit[]
+  leadProperties LeadProperty[]
+  portalLogs     PortalLog[]
+
+  @@unique([orgId, phone])
+}
+
+// ─── Portal Integration Source ───────────────────────────────────
+model PortalSource {
+  id          String   @id @default(cuid())
+  name        String                          // "MagicBricks Production"
+  slug        String                          // "magicbricks" — used in URL & source tagging
+  apiKeyHash  String                          // sha256 of the API key
+  apiKeyHint  String                          // last 4 chars shown in UI
+  isActive    Boolean  @default(true)
+  description String?
+  totalLeads  Int      @default(0)            // denormalized counter
+  lastLeadAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id])
+
+  leads PortalLog[]
+  Lead  Lead[]
+
+  @@unique([orgId, slug])
+}
+
+// ─── Portal Request Log (audit trail) ────────────────────────────
+model PortalLog {
+  id           String   @id @default(cuid())
+  sourceSlug   String
+  rawPayload   String                         // full JSON body
+  status       String                         // success | duplicate | error | invalid
+  action       String?                        // created | updated
+  errorMessage String?
+  ip           String?
+  createdAt    DateTime @default(now())
+
+  orgId  String
+  leadId String?
+  lead   Lead?        @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  org    Organization @relation(fields: [orgId], references: [id])
+  source PortalSource @relation(fields: [sourceSlug, orgId], references: [slug, orgId])
+
+  @@index([orgId, sourceSlug])
+  @@index([orgId, createdAt])
+}
+
+// ─── Property ────────────────────────────────────────────────────
+model Property {
+  id           String   @id @default(cuid())
+  title        String
+  location     String
+  city         String?
+  state        String?
+  latitude     Float?
+  longitude    Float?
+  price        Float
+  priceUnit    String   @default("total") // total | per_sqft
+  type         String   // apartment | villa | plot | commercial | other
+  bedrooms     Int?
+  bathrooms    Int?
+  area         Float?
+  areaUnit     String   @default("sqft")
+  availability String   @default("available") // available | sold | reserved | upcoming
+  description  String?
+  images       String?  // JSON array of URLs
+  documents    String?  // JSON array of URLs (brochures, etc.)
+  amenities    String?  // JSON array of strings
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id])
+
+  leadProperties LeadProperty[]
+  visits         SiteVisit[]
+}
+
+// ─── Lead ↔ Property (interest tracking) ─────────────────────────
+model LeadProperty {
+  id        String   @id @default(cuid())
+  interest  String   @default("interested") // interested | visited | offered | rejected
+  notes     String?
+  createdAt DateTime @default(now())
+
+  leadId     String
+  lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([leadId, propertyId])
+}
+
+// ─── Activity Timeline ───────────────────────────────────────────
+model Activity {
+  id        String   @id @default(cuid())
+  type      String   // call | note | email | whatsapp | status_change | visit | system | task
+  title     String
+  content   String?
+  metadata  String?  // JSON stored as text
+  dueDate   DateTime?
+  isDone    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+}
+
+// ─── WhatsApp Messages ───────────────────────────────────────────
+model Message {
+  id        String   @id @default(cuid())
+  direction String   // inbound | outbound
+  type      String   @default("text") // text | template | media
+  content   String
+  status    String   @default("sent") // sent | delivered | read | failed
+  waMessageId String?
+  createdAt DateTime @default(now())
+
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+}
+
+// ─── Message Templates ───────────────────────────────────────────
+model MessageTemplate {
+  id        String   @id @default(cuid())
+  name      String
+  category  String   @default("general") // welcome | follow_up | visit_confirm | general
+  content   String
+  variables String?  // JSON array of variable names
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id])
+}
+
+// ─── Site Visit ──────────────────────────────────────────────────
+model SiteVisit {
+  id        String   @id @default(cuid())
+  date      DateTime
+  time      String
+  status    String   @default("scheduled") // scheduled | confirmed | completed | cancelled | no_show
+  notes     String?
+  feedback  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  leadId     String
+  lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  propertyId String?
+  property   Property? @relation(fields: [propertyId], references: [id])
+  agentId    String
+  agent      User     @relation(fields: [agentId], references: [id])
+  orgId      String
+  org        Organization @relation(fields: [orgId], references: [id])
+}
+
+// ─── Automations ─────────────────────────────────────────────────
+model Automation {
+  id        String   @id @default(cuid())
+  name      String
+  trigger   String   // new_lead | status_change | visit_scheduled
+  conditions String? // JSON describing condition rules
+  actions    String  // JSON array of actions (send_whatsapp, email, assign_agent)
+  isActive   Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id])
+}
+
+// ─── Password Reset Token ────────────────────────────────────────
+model PasswordReset {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  email     String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
